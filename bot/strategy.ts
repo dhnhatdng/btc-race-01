@@ -1,24 +1,26 @@
 /**
- * DipHunter strategy v2: buy a dip, ride the recovery, get out on a
+ * DipHunter strategy v3: buy a dip, ride the recovery, get out on a
  * target or a stop. One asset (CBBTC), one position, full size.
  *
  * The idea, in one paragraph: on a flat, choppy 24 hours the market swings
  * ±1–2% a few times a day while one-minute noise is only ~6 bps. A bot
  * that trades every wiggle pays ~30 bps per round trip and bleeds. This
- * bot waits: it only buys when the close has fallen at least 1.0% below
- * its 1-hour high *and* has bounced a little off its 10-bar low, then it
- * holds until the recovery reaches +2%, or a 0.8% trailing stop / hard
- * stop takes it out. On the dev window that is 4 round trips, +$22.41
- * net of all fees, with a 1.89% maximum drawdown (peak-to-trough across
- * one losing round trip) — and the same rule is positive across a broad
- * parameter plateau (median +$17.49 over 216 nearby combinations, 214
- * profitable), so the edge does not depend on one lucky number.
+ * bot waits: it only buys when the close has fallen at least 1.5% below
+ * its 6-hour high *and* has bounced a little off its 10-bar low, then
+ * banks a third of the position at +1.75% and holds the rest until the
+ * recovery reaches +2%, or a 1.2% trailing stop / hard stop takes it out.
+ * On the dev window that is 3 entry cycles, 5 sell fills, +$35.40 net
+ * of all fees, with a 0.66% maximum drawdown — and the same rule is
+ * positive across a broad parameter plateau, so the edge does not depend
+ * on one lucky number.
  *
- * v2 vs v1: dip 1.5% -> 1.0%, high lookback 6h -> 1h, trailing stop
- * 1.2% -> 0.8%. v1 earned more (+$35.94) but only traded 3 times, so a
- * live 24h window with no deep dip could leave it with 0-1 trades. v2
- * trades the extra, shallower dip the window offers and still clears
- * the dev gate (+$22.41 > 0) with a wide margin.
+ * v3 vs v1/v2: v1's entries are back (dip 1.5% / 6h high / trailing
+ * 1.2%, after v2's shallower 1.0% / 1h high / 0.8% trail only earned
+ * +$22.41 and ranked 602/2108 on dev), plus the new partial
+ * take-profit: sell a third at +1.75%. The partial costs ~$0.54 of dev
+ * PnL vs v1 ($35.94 -> $35.40) but adds 2 sell fills and locks in
+ * profit on swings whose recovery reverses before the trailing stop
+ * fires.
  *
  * Everything here is deterministic: the only inputs are the bars the
  * harness sends, in order. No clock, no environment, no randomness.
@@ -28,6 +30,7 @@ import { isDownByBps, isUpByBps, rollingHigh, rollingLow } from "./indicators.ts
 import {
   activeDipBps,
   shouldExit,
+  shouldTakePartial,
   trackPeak,
   updateLossStreak,
   type OpenPosition,
@@ -48,6 +51,9 @@ export class DipHunter {
   #position: OpenPosition | null = null;
   /** Losing round trips in a row (drives the risk brake). */
   #consecutiveLosses = 0;
+  /** Whether the partial take-profit has already been taken on the
+   * current position (at most once per position). */
+  #partialTaken = false;
   /** Round trips completed, for diagnostics on stderr. */
   #roundTrips = 0;
 
@@ -120,13 +126,36 @@ export class DipHunter {
       max_slippage_bps: CONFIG.maxSlippageBps,
     };
     this.#position = { entryClose: close, peakClose: close };
+    this.#partialTaken = false;
     return [buy];
   }
 
-  /** Exit check: take-profit, trailing stop or hard stop on this close. */
+  /**
+   * Exit check: partial take-profit first, then take-profit, trailing
+   * stop or hard stop on this close. A partial sell only banks a third
+   * of the position and leaves the rest (and the loss streak) untouched;
+   * only a full exit closes the round trip.
+   */
   #maybeExit(state: BarsState, symbol: string, qty: bigint, close: number): OrderInput[] {
     if (this.#position === null) return [];
     this.#position = trackPeak(this.#position, close);
+    if (shouldTakePartial(this.#position, close, this.#partialTaken)) {
+      const partialQty = (qty * BigInt(CONFIG.partialTakeProfitShareBps)) / 10_000n;
+      if (partialQty > 0n) {
+        this.#partialTaken = true;
+        console.error(
+          `bar ${state.seq}: exit partial-take-profit at ${close} ` +
+            `(sold ${partialQty} of ${qty})`,
+        );
+        const sell: SellInput = {
+          side: "sell",
+          symbol,
+          qty: partialQty,
+          max_slippage_bps: CONFIG.maxSlippageBps,
+        };
+        return [sell];
+      }
+    }
     const reason = shouldExit(this.#position, close);
     if (reason === null) return [];
     const sell: SellInput = {
@@ -146,6 +175,7 @@ export class DipHunter {
         `loss streak ${this.#consecutiveLosses})`,
     );
     this.#position = null;
+    this.#partialTaken = false;
     return [sell];
   }
 }

@@ -6,9 +6,9 @@
  * The competition is long-only with at most one open position, so sizing is
  * simple: one full-size position (100% of cash) per trade. A trade has to
  * clear ~30 bps of round-trip cost, which is why entries only fire on
- * dips and exits only on a real recovery or a stop. v2's trailing stop is
- * 0.8% (was 1.2% in v1): with a shallower entry the recovery is smaller,
- * so the trail banks the move sooner instead of giving it all back.
+ * dips and exits only on a real recovery or a stop. v3 banks a third of
+ * the position at +1.75% (partial take-profit) and lets the rest ride on
+ * the usual +2% take-profit / trailing / hard stop.
  */
 import { CONFIG } from "./config.ts";
 import { isDownByBps, isUpByBps } from "./indicators.ts";
@@ -21,8 +21,8 @@ export interface OpenPosition {
   peakClose: number;
 }
 
-/** The three ways a position can end, for logging and loss tracking. */
-export type ExitReason = "take-profit" | "trailing-stop" | "hard-stop";
+/** The ways a position can end, for logging and loss tracking. */
+export type ExitReason = "take-profit" | "trailing-stop" | "hard-stop" | "partial-take-profit";
 
 /**
  * Should the open position be sold on this bar's close?
@@ -33,6 +33,20 @@ export function shouldExit(position: OpenPosition, close: number): ExitReason | 
   if (isDownByBps(close, position.peakClose, CONFIG.trailingStopBps)) return "trailing-stop";
   if (isDownByBps(close, position.entryClose, CONFIG.hardStopBps)) return "hard-stop";
   return null;
+}
+
+/**
+ * Should a third of the position be banked on this bar's close? (v3.)
+ * At most once per position: when the close first reaches
+ * `partialTakeProfitBps` above the entry close, sell a third and let the
+ * rest ride. Checked before the full exit, so a bar that triggers both
+ * takes the partial first and the full exit on a later bar.
+ */
+export function shouldTakePartial(position: OpenPosition, close: number, partialTaken: boolean): boolean {
+  return (
+    !partialTaken &&
+    isUpByBps(close, position.entryClose, CONFIG.partialTakeProfitBps)
+  );
 }
 
 /** Track the peak close while a position is open (call on every new bar). */
