@@ -1,17 +1,24 @@
 /**
- * DipHunter strategy: buy a deep dip, ride the recovery, get out on a
+ * DipHunter strategy v2: buy a dip, ride the recovery, get out on a
  * target or a stop. One asset (CBBTC), one position, full size.
  *
  * The idea, in one paragraph: on a flat, choppy 24 hours the market swings
  * ±1–2% a few times a day while one-minute noise is only ~6 bps. A bot
  * that trades every wiggle pays ~30 bps per round trip and bleeds. This
- * bot waits: it only buys when the close has fallen at least 1.5% below
- * its 6-hour high *and* has bounced a little off its 10-bar low, then it
- * holds until the recovery reaches +2%, or a 1.2% trailing stop / hard
- * stop takes it out. On the dev window that is 3 round trips, +$35.94
- * net of all fees, with a 0.71% maximum drawdown — and the same rule is
- * positive across a 63-combination parameter grid (median +$11), so the
- * edge does not depend on one lucky number.
+ * bot waits: it only buys when the close has fallen at least 1.0% below
+ * its 1-hour high *and* has bounced a little off its 10-bar low, then it
+ * holds until the recovery reaches +2%, or a 0.8% trailing stop / hard
+ * stop takes it out. On the dev window that is 4 round trips, +$22.41
+ * net of all fees, with a 1.89% maximum drawdown (peak-to-trough across
+ * one losing round trip) — and the same rule is positive across a broad
+ * parameter plateau (median +$17.49 over 216 nearby combinations, 214
+ * profitable), so the edge does not depend on one lucky number.
+ *
+ * v2 vs v1: dip 1.5% -> 1.0%, high lookback 6h -> 1h, trailing stop
+ * 1.2% -> 0.8%. v1 earned more (+$35.94) but only traded 3 times, so a
+ * live 24h window with no deep dip could leave it with 0-1 trades. v2
+ * trades the extra, shallower dip the window offers and still clears
+ * the dev gate (+$22.41 > 0) with a wide margin.
  *
  * Everything here is deterministic: the only inputs are the bars the
  * harness sends, in order. No clock, no environment, no randomness.

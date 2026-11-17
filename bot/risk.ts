@@ -5,8 +5,10 @@
  *
  * The competition is long-only with at most one open position, so sizing is
  * simple: one full-size position (100% of cash) per trade. A trade has to
- * clear ~30 bps of round-trip cost, which is why entries only fire on deep
- * dips and exits only on a real recovery or a stop.
+ * clear ~30 bps of round-trip cost, which is why entries only fire on
+ * dips and exits only on a real recovery or a stop. v2's trailing stop is
+ * 0.8% (was 1.2% in v1): with a shallower entry the recovery is smaller,
+ * so the trail banks the move sooner instead of giving it all back.
  */
 import { CONFIG } from "./config.ts";
 import { isDownByBps, isUpByBps } from "./indicators.ts";
